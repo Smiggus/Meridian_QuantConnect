@@ -44,9 +44,9 @@
             ".vscode/**": true
         },
         "files.readonlyInclude": {
-            "**/*.py": false,
-            "**/*.cs": false,
-            "**/*.ipynb": false,
+            "**/*.py": true,
+            "**/*.cs": true,
+            "**/*.ipynb": true,
             "c:/Users/MP/OneDrive/CASE/Projects/Algos/2026/MeridianFactorInvesting/**/*.py": false,
             "c:/Users/MP/OneDrive/CASE/Projects/Algos/2026/MeridianFactorInvesting/**/*.cs": false,
             "c:/Users/MP/OneDrive/CASE/Projects/Algos/2026/MeridianFactorInvesting/**/*.ipynb": false
