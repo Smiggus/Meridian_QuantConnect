@@ -6,7 +6,13 @@ import pandas as pd
 from factors import FACTOR_MAP, FACTOR_GROUPS, GROUP_WEIGHTS
 
 
-def winsorise(df: pd.DataFrame, lower: float = 0.05, upper: float = 0.95) -> pd.DataFrame:
+def winsorise(df: pd.DataFrame,
+              lower: float = 0.05,
+              upper: float = 0.95) -> pd.DataFrame:
+    """
+    Standard winsorisation — growth factors already winsorised
+    at source in compute_growth() so no special handling needed here.
+    """
     df = df.copy()
     for col in df.columns:
         lo = df[col].quantile(lower)
@@ -28,51 +34,45 @@ def apply_direction(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def score_universe(features: pd.DataFrame, momentum: pd.Series) -> pd.DataFrame:
-    """
-    Full scoring pipeline. Accepts raw features DataFrame + momentum Series.
-    Returns scored DataFrame with composite_score and quintile columns.
-    Mirrors scorer.score_universe() from Meridian.
-    """
     if features.empty:
         return pd.DataFrame()
 
     df = features.copy()
     df["momentum_12_1"] = momentum
 
-    factor_cols = list(FACTOR_MAP.keys()) + ["momentum_12_1"]
+    # All factor columns — skip None-sourced placeholders
+    factor_cols = [
+        f for f, (group, _, _, _) in FACTOR_MAP.items()
+        if group is not None or f == "momentum_12_1"
+    ] + ["revenue_growth", "earnings_growth", "fcf_growth", "ebitda_growth"]
+    factor_cols = list(dict.fromkeys(factor_cols))  # deduplicate, preserve order
     factor_cols = [c for c in factor_cols if c in df.columns]
+
     factors = df[factor_cols].astype(float)
 
-    # Need at least 10 stocks for meaningful z-scores
-    valid_rows = factors.dropna(how="all")
-    if len(valid_rows) < 10:
+    if factors.dropna(how="all").shape[0] < 10:
         return pd.DataFrame()
 
     factors_w = winsorise(factors)
     factors_z = cross_sectional_zscore(factors_w)
     factors_z = apply_direction(factors_z)
 
-    # Group scores
     group_scores = pd.DataFrame(index=factors_z.index)
     for group, cols in FACTOR_GROUPS.items():
         available = [c for c in cols if c in factors_z.columns]
         if available:
             group_scores[group] = factors_z[available].mean(axis=1, skipna=True)
 
-    # Composite score
     composite = pd.Series(0.0, index=group_scores.index)
     for group, weight in GROUP_WEIGHTS.items():
         if group in group_scores.columns:
             composite += group_scores[group].fillna(0) * weight
     composite.name = "composite_score"
 
-    # Quintiles
     n = composite.notna().sum()
-    if n >= 5:
-        quintiles = pd.qcut(composite, q=5, labels=[1, 2, 3, 4, 5])
-    else:
-        quintiles = pd.Series(np.nan, index=composite.index)
+    quintiles = pd.qcut(composite, q=5, labels=[1,2,3,4,5]) if n >= 5 else \
+                pd.Series(np.nan, index=composite.index)
     quintiles.name = "quintile"
 
-    result = pd.concat([composite, quintiles, group_scores], axis=1)
-    return result.sort_values("composite_score", ascending=False)
+    return pd.concat([composite, quintiles, group_scores], axis=1)\
+             .sort_values("composite_score", ascending=False)

@@ -58,32 +58,28 @@ class MeridianAlgorithm(QCAlgorithm):
 
         symbols = list(self._fine_data.keys())
         if len(symbols) < 20:
-            self.Debug(f"[meridian] Skipping rebalance — only {len(symbols)} symbols")
+            self.Debug(f"[meridian] Skipping — only {len(symbols)} symbols")
             return
 
         self.Debug(f"[meridian] Rebalancing {len(symbols)} symbols")
 
-        # ── Step 1: Extract fundamentals ──────────────────────────────────
+        # Step 1: All fundamentals including growth — single extraction call
         features = extract_fundamental(symbols, self._fine_data)
         if features.empty:
-            self.Debug("[meridian] No fundamental data — skipping")
             return
 
-        # ── Step 2: Compute momentum ───────────────────────────────────────
+        # Step 2: Momentum
         momentum = compute_momentum(self, symbols)
 
-        # ── Step 3: Score universe ─────────────────────────────────────────
+        # Step 3: Score
         scored = score_universe(features, momentum)
         if scored.empty:
-            self.Debug("[meridian] Scoring returned empty — skipping")
             return
 
         self._last_scored = scored
 
-        # ── Step 4: Build portfolio targets ───────────────────────────────
+        # Step 4: Build targets
         targets = build_targets(scored, long_q=5, short_q=1, max_position=0.05)
-
-        # Add exits for positions no longer in signal
         current = [x.Key for x in self.Portfolio if self.Portfolio[x.Key].Invested]
         exits   = get_exit_targets(current, targets)
         targets.update(exits)
@@ -91,8 +87,7 @@ class MeridianAlgorithm(QCAlgorithm):
         if not targets:
             return
 
-
-        # ── Step 5: Execute ────────────────────────────────────────────────
+        # Step 5: Execute
         valid_targets = {
             symbol: weight
             for symbol, weight in targets.items()
@@ -103,7 +98,6 @@ class MeridianAlgorithm(QCAlgorithm):
         }
 
         if not valid_targets:
-            self.Debug("[meridian] No valid tradeable targets this rebalance")
             return
 
         self.SetHoldings(
