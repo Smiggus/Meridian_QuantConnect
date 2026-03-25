@@ -1,0 +1,9 @@
+{
+    "cloud-id": 29347551,
+    "algorithm-language": "Python",
+    "parameters": {},
+    "description": "A live-tradeable implementation of the Meridian factor model built natively on QuantConnects LEAN engine using Morningstar fundamental data. Scores a universe of 500 US equities weekly across value quality and momentum factors then goes long the top quintile and short the bottom quintile.",
+    "organization-id": "50b5ad4bc565f514f75053ce17f8f227",
+    "python-venv": 1,
+    "deployment-target": "Cloud Platform"
+}

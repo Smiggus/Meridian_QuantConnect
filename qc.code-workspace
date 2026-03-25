@@ -1,0 +1,55 @@
+{
+    "folders": [
+        {
+            "name": "Project",
+            "path": "c:\\Users\\MP\\OneDrive\\CASE\\Projects\\Algos\\2026\\MeridianFactorInvesting"
+        }
+    ],
+    "settings": {
+        "python.autoComplete.extraPaths": [
+            "c:\\Users\\MP\\OneDrive\\CASE\\Projects\\Algos\\Library"
+        ],
+        "python.analysis.extraPaths": [
+            "c:\\Users\\MP\\OneDrive\\CASE\\Projects\\Algos\\Library"
+        ],
+        "files.autoSave": "afterDelay",
+        "files.exclude": {
+            "**.vscode": true,
+            "**.idea": true,
+            "config.json": true,
+            "qc.code-workspace": true,
+            "bin": true,
+            "obj": true,
+            "backtests": true,
+            "live": true,
+            "optimizations": true,
+            "storage": true,
+            "report": true,
+            "__pycache__": true,
+            ".ipynb_checkpoints": true,
+            ".idea": true,
+            ".vscode": true
+        },
+        "files.watcherExclude": {
+            "bin/**": true,
+            "obj/**": true,
+            "backtests/**": true,
+            "live/**": true,
+            "optimizations/**": true,
+            "storage/**": true,
+            "report/**": true,
+            "__pycache__/**": true,
+            ".ipynb_checkpoints/**": true,
+            ".idea/**": true,
+            ".vscode/**": true
+        },
+        "files.readonlyInclude": {
+            "**/*.py": false,
+            "**/*.cs": false,
+            "**/*.ipynb": false,
+            "c:/Users/MP/OneDrive/CASE/Projects/Algos/2026/MeridianFactorInvesting/**/*.py": false,
+            "c:/Users/MP/OneDrive/CASE/Projects/Algos/2026/MeridianFactorInvesting/**/*.cs": false,
+            "c:/Users/MP/OneDrive/CASE/Projects/Algos/2026/MeridianFactorInvesting/**/*.ipynb": false
+        }
+    }
+}
