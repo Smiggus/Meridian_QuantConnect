@@ -25,9 +25,7 @@ class MeridianRiskModel(RiskManagementModel):
     def __init__(self):
         self._peak_value = None
 
-    def ManageRisk(
-        self, algorithm: QCAlgorithm, targets: list
-    ) -> list:
+    def ManageRisk(self, algorithm, targets):
 
         portfolio_value = float(algorithm.Portfolio.TotalPortfolioValue)
         if portfolio_value <= 0:
@@ -44,7 +42,6 @@ class MeridianRiskModel(RiskManagementModel):
                 f"[risk] Drawdown halt triggered: "
                 f"{drawdown:.1%} from peak ${self._peak_value:,.0f}"
             )
-            # Liquidate all invested positions
             return [
                 PortfolioTarget(x.Key, 0)
                 for x in algorithm.Portfolio
@@ -54,6 +51,8 @@ class MeridianRiskModel(RiskManagementModel):
         adjusted = []
 
         # ── Rule 2: Single position cap ───────────────────────────────────
+        # target.Quantity from InsightWeightingPortfolioConstructionModel is a
+        # portfolio fraction (e.g. 0.05 = 5%), so compare directly to the cap.
         for target in targets:
             pct = abs(target.Quantity)
             if pct > MAX_POSITION_WEIGHT:
@@ -84,7 +83,6 @@ class MeridianRiskModel(RiskManagementModel):
             sector_weights.setdefault(sector_code, 0.0)
             sector_weights[sector_code] += abs(float(target.Quantity))
 
-        # Find overweight sectors
         overweight = {
             s: w for s, w in sector_weights.items()
             if w > MAX_SECTOR_WEIGHT
@@ -114,7 +112,7 @@ class MeridianRiskModel(RiskManagementModel):
                 continue
 
             if sector_code in overweight:
-                scale = MAX_SECTOR_WEIGHT / overweight[sector_code]
+                scale   = MAX_SECTOR_WEIGHT / overweight[sector_code]
                 new_qty = float(target.Quantity) * scale
                 algorithm.Log(
                     f"[risk] Sector {sector_code} overweight "
