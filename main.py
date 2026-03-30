@@ -96,7 +96,7 @@ class MeridianAlgorithm(QCAlgorithm):
 
         watchlist_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            "..", "..", "lean-data-platform", "manifests", "watchlist.json"
+            "manifests", "watchlist.json"
         )
 
         with open(watchlist_path) as fh:

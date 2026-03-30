@@ -1,4 +1,4 @@
- """
+"""
 QuantConnect Custom Data Library
 ──────────────────────────────────
 PythonData subclasses that read from the LEAN data library
