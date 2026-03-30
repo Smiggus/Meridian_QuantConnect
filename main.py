@@ -2,30 +2,21 @@ from AlgorithmImports import *
 from datetime import timedelta
 import json
 import os
-import sys
+import platform
 
 import numpy as np
 
-# ── lean-data-platform path ───────────────────────────────────────────────────
-# Resolved relative to this file: Projects/Algo/Meridian_QuantConnect/ → ../../
-# Override with LEAN_PLATFORM_PATH env var if the repo lives elsewhere.
-_LEAN_PLATFORM_PATH = os.environ.get("LEAN_PLATFORM_PATH") or os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "lean-data-platform")
-)
-if os.path.isdir(_LEAN_PLATFORM_PATH) and _LEAN_PLATFORM_PATH not in sys.path:
-    sys.path.insert(0, _LEAN_PLATFORM_PATH)
-
-try:
-    from lean_pipeline.coverage_checker import CoverageChecker
-    from lean_pipeline.pipeline_client  import PipelineClient
-    _PIPELINE_AVAILABLE = True
-except ImportError:
-    _PIPELINE_AVAILABLE = False
+from lean_pipeline.coverage_checker import CoverageChecker
+from lean_pipeline.pipeline_client  import PipelineClient
 
 from universe       import coarse_filter, fine_filter
 from risk_model     import MeridianRiskModel
 from meridian_alpha import MeridianAlphaModel, WeightOptimizer
 from meridian_alpha.local_fundamental_adapter import LocalFundamentalAdapter
+
+# Hostnames that identify a local development machine.
+# Add additional hostnames here if running on more than one local box.
+_LOCAL_HOSTNAMES = {"HAL-107"}
 
 
 class MeridianAlgorithm(QCAlgorithm):
@@ -45,23 +36,17 @@ class MeridianAlgorithm(QCAlgorithm):
         self._fine_data     = {}
         self._local_symbols = {}   # ticker str → Symbol  (local mode only)
 
-        self.is_local = (
-            _PIPELINE_AVAILABLE
-            and os.environ.get("QC_RUN_ENV", "").strip().lower() == "local"
-        )
+        self.is_local = platform.node() in _LOCAL_HOSTNAMES
+
+        self.Log(f"[meridian] Host: {platform.node()} — "
+                 f"{'local pipeline (Databento + FMP)' if self.is_local else 'cloud (QC)'}")
 
         if self.is_local:
             self._init_local_data()
         else:
             self._init_cloud_data()
 
-        self.Log(
-            f"[meridian] Initialized — "
-            f"{'local pipeline (Databento + FMP)' if self.is_local else 'cloud (QC)'} | "
-            f"cash={self.Portfolio.Cash:,.0f}"
-        )
-
-    # ── Cloud initialisation (unchanged from main) ────────────────────────────
+    # ── Cloud initialisation (unchanged) ─────────────────────────────────────
 
     def _init_cloud_data(self) -> None:
         self.AddUniverse(self.CoarseFilter, self.FineFilter)
@@ -80,20 +65,39 @@ class MeridianAlgorithm(QCAlgorithm):
 
     def _init_local_data(self) -> None:
         """
-        1. Load Russell 2000 universe from lean-data-platform/manifests/watchlist.json.
-        2. Check PostgreSQL coverage for each ticker via CoverageChecker.
-        3. Fire Databento (OHLCV) and FMP (fundamentals) Dagster jobs for any gaps.
+        1. Load Russell 2000 universe from manifests/watchlist.json.
+        2. Check PostgreSQL coverage via CoverageChecker (reads pg-* parameters).
+        3. Fire Databento / FMP Dagster jobs for any missing data.
         4. If all data is present: subscribe equities and set up the framework.
 
-        Environment variables:
-            QC_RUN_ENV=local          — activates this path
-            LEAN_DATA_ROOT            — LEAN data directory (default: /app/data)
-            LEAN_PLATFORM_PATH        — override path to lean-data-platform repo
-            DAGSTER_HOST / DAGSTER_PORT — Dagster webserver (default: localhost:3000)
-            PGHOST / PGPORT / PGDB / PGUSER / PGPASS — PostgreSQL credentials
+        Connection config is read from QC algorithm parameters (config.json):
+            pg-host, pg-port, pg-db, pg-user, pg-pass
+            dagster-host, dagster-port
+
+        LEAN data root: /Data  (mounted by lean CLI from Algo/data/)
+        Re-run after Dagster completes ingestion if data is missing.
         """
-        lean_root      = os.environ.get("LEAN_DATA_ROOT", "/app/data")
-        watchlist_path = os.path.join(_LEAN_PLATFORM_PATH, "manifests", "watchlist.json")
+        # Bridge QC parameters → env vars so CoverageChecker / PipelineClient
+        # pick them up without modification.
+        for param, env_var in [
+            ("pg-host",      "PGHOST"),
+            ("pg-port",      "PGPORT"),
+            ("pg-db",        "PGDB"),
+            ("pg-user",      "PGUSER"),
+            ("pg-pass",      "PGPASS"),
+            ("dagster-host", "DAGSTER_HOST"),
+            ("dagster-port", "DAGSTER_PORT"),
+        ]:
+            value = self.GetParameter(param)
+            if value:
+                os.environ[env_var] = value
+
+        lean_root = "/Data"
+
+        watchlist_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "..", "lean-data-platform", "manifests", "watchlist.json"
+        )
 
         with open(watchlist_path) as fh:
             watchlist = json.load(fh)
@@ -138,8 +142,6 @@ class MeridianAlgorithm(QCAlgorithm):
             self.Quit(msg)
             return
 
-        # All data confirmed present — subscribe equities (reads from LEAN ZIPs
-        # written by the Databento pipeline's LeanDataWriter)
         for entry in universe:
             ticker = entry["ticker"]
             try:
@@ -155,22 +157,16 @@ class MeridianAlgorithm(QCAlgorithm):
         """
         Reads the two most recent LEAN fine fundamental JSONs per ticker and
         returns { Symbol → LocalFundamentalAdapter }.
-
-        Files live at: LEAN_DATA_ROOT/fundamental/fine/{ticker}/{YYYYMMDD}.json
-        Written by lean-data-platform's FMP pipeline via LeanDataWriter.
-
-        Called at the start of each WeeklyRebalance in local mode.
+        Files: /Data/fundamental/fine/{ticker}/{YYYYMMDD}.json
         """
-        lean_root = os.environ.get("LEAN_DATA_ROOT", "/app/data")
-        result    = {}
+        result = {}
 
         for ticker, symbol in self._local_symbols.items():
-            fine_dir = os.path.join(lean_root, "fundamental", "fine", ticker.lower())
+            fine_dir = os.path.join("/Data", "fundamental", "fine", ticker.lower())
             if not os.path.isdir(fine_dir):
                 continue
 
             try:
-                # YYYYMMDD.json filenames sort correctly as strings
                 files = sorted(
                     [f for f in os.listdir(fine_dir) if f.endswith(".json")],
                     reverse=True,
@@ -182,7 +178,7 @@ class MeridianAlgorithm(QCAlgorithm):
                 continue
 
             records = []
-            for fname in files[:2]:  # newest + prior period for YoY growth factors
+            for fname in files[:2]:
                 try:
                     with open(os.path.join(fine_dir, fname)) as fh:
                         obj = json.load(fh)
@@ -193,20 +189,16 @@ class MeridianAlgorithm(QCAlgorithm):
                     val      = obj.get("ValuationRatios", {})
 
                     records.append({
-                        # Income statement
                         "revenue":             income.get("TotalRevenue"),
                         "gross_profit":        income.get("GrossProfit"),
                         "ebitda":              income.get("Ebitda"),
                         "net_income":          income.get("NetIncome"),
                         "operating_income":    income.get("OperatingIncome"),
-                        # Balance sheet
                         "total_assets":        balance.get("TotalAssets"),
                         "equity":              balance.get("CommonStockEquity"),
                         "total_debt":          balance.get("TotalDebt"),
-                        # Cash flow
                         "free_cash_flow":      cashflow.get("FreeCashFlow"),
                         "operating_cash_flow": cashflow.get("OperatingCashFlow"),
-                        # Pre-computed valuation ratios (from FMP via LeanDataWriter)
                         "pe_ratio":            val.get("PERatio"),
                         "pb_ratio":            val.get("PBRatio"),
                         "ev_ebitda":           val.get("EVToEBITDA"),
@@ -225,10 +217,6 @@ class MeridianAlgorithm(QCAlgorithm):
     # ── Shared framework setup ────────────────────────────────────────────────
 
     def _setup_framework(self) -> None:
-        """
-        Wires up alpha, PCM, risk management, execution, and schedule.
-        Called by both _init_cloud_data and _init_local_data.
-        """
         self._optimizer = WeightOptimizer(self, self._fine_data)
         self._alpha     = MeridianAlphaModel(self._fine_data, self._optimizer)
 
@@ -242,7 +230,6 @@ class MeridianAlgorithm(QCAlgorithm):
 
         self.add_risk_management(MaximumDrawdownPercentPerSecurity())
         self.add_risk_management(MaximumSectorExposureRiskManagementModel())
-        # self.add_risk_management(MaximumDrawdownPercentPortfolio(...))
         # self.AddRiskManagement(MeridianRiskModel())  # disabled for testing
 
         self.SetExecution(ImmediateExecutionModel())
@@ -263,11 +250,10 @@ class MeridianAlgorithm(QCAlgorithm):
             return
 
         if self.is_local:
-            # Refresh fundamentals from FMP JSON files before scoring
             self._fine_data.clear()
             self._fine_data.update(self._load_local_fundamentals())
             if len(self._fine_data) < 20:
-                self.Log("[meridian] Skipping — insufficient local fundamental data loaded")
+                self.Log("[meridian] Skipping — insufficient local fundamental data")
                 return
         else:
             if len(self._fine_data) < 20:
