@@ -112,30 +112,19 @@ class MeridianAlgorithm(QCAlgorithm):
         all_tickers  = [e["ticker"] for e in universe]
         dataset_map  = {e["ticker"]: e.get("databento_dataset", "XNAS.ITCH") for e in universe}
 
-        # Two bulk queries instead of one per ticker — avoids init timeout
-        self.Log("[meridian] Checking OHLCV coverage...")
+        # Two bulk queries — one round-trip each regardless of universe size
+        self.Log("[meridian] Checking coverage (bulk)...")
         missing_ohlcv = checker.get_uncovered_ohlcv(all_tickers, start, end)
-        self.Log(f"[meridian] Checking fundamentals coverage...")
         missing_funds = checker.get_uncovered_fundamentals(all_tickers)
-
-        for ticker in missing_ohlcv:
-            client.request_ohlcv(
-                ticker=ticker,
-                start_date=start,
-                end_date=end,
-                dataset=dataset_map[ticker],
-                lean_data_root=lean_root,
-            )
-
-        for ticker in missing_funds:
-            client.request_fundamentals(ticker=ticker, lean_data_root=lean_root)
+        self.Log(f"[meridian] OHLCV missing: {len(missing_ohlcv)} | Fundamentals missing: {len(missing_funds)}")
 
         if missing_ohlcv or missing_funds:
             msg = (
-                f"[meridian] Data missing — "
+                f"[meridian] Data not ready — "
                 f"OHLCV: {len(missing_ohlcv)} tickers, "
                 f"Fundamentals: {len(missing_funds)} tickers. "
-                "Dagster jobs fired. Re-run after ingestion completes."
+                "Trigger bulk ingest via Dagster UI (http://192.168.17.4:3000) "
+                "then re-run."
             )
             self.Log(msg)
             self.Quit(msg)
