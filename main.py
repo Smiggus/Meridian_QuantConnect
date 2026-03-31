@@ -104,32 +104,31 @@ class MeridianAlgorithm(QCAlgorithm):
         universe = watchlist.get("universe", [])
         self.Log(f"[meridian] Universe: {len(universe)} tickers from watchlist")
 
-        checker = CoverageChecker()
-        client  = PipelineClient()
+        checker  = CoverageChecker()
+        client   = PipelineClient()
+        start    = self.StartDate.date()
+        end      = self.EndDate.date()
 
-        start = self.StartDate.date()
-        end   = self.EndDate.date()
+        all_tickers  = [e["ticker"] for e in universe]
+        dataset_map  = {e["ticker"]: e.get("databento_dataset", "XNAS.ITCH") for e in universe}
 
-        missing_ohlcv = []
-        missing_funds = []
+        # Two bulk queries instead of one per ticker — avoids init timeout
+        self.Log("[meridian] Checking OHLCV coverage...")
+        missing_ohlcv = checker.get_uncovered_ohlcv(all_tickers, start, end)
+        self.Log(f"[meridian] Checking fundamentals coverage...")
+        missing_funds = checker.get_uncovered_fundamentals(all_tickers)
 
-        for entry in universe:
-            ticker  = entry["ticker"]
-            dataset = entry.get("databento_dataset", "XNAS.ITCH")
+        for ticker in missing_ohlcv:
+            client.request_ohlcv(
+                ticker=ticker,
+                start_date=start,
+                end_date=end,
+                dataset=dataset_map[ticker],
+                lean_data_root=lean_root,
+            )
 
-            if not checker.is_ohlcv_covered(ticker, start, end):
-                client.request_ohlcv(
-                    ticker=ticker,
-                    start_date=start,
-                    end_date=end,
-                    dataset=dataset,
-                    lean_data_root=lean_root,
-                )
-                missing_ohlcv.append(ticker)
-
-            if not checker.is_fundamentals_covered(ticker):
-                client.request_fundamentals(ticker=ticker, lean_data_root=lean_root)
-                missing_funds.append(ticker)
+        for ticker in missing_funds:
+            client.request_fundamentals(ticker=ticker, lean_data_root=lean_root)
 
         if missing_ohlcv or missing_funds:
             msg = (

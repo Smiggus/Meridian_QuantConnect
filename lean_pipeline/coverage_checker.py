@@ -114,6 +114,73 @@ class CoverageChecker:
         segments.append({"start": seg_start, "end": seg_end})
         return segments
 
+    def get_uncovered_ohlcv(
+        self,
+        tickers: list[str],
+        start_date: date,
+        end_date: date,
+        resolution: str = "daily",
+    ) -> list[str]:
+        """
+        Single-query bulk check. Returns list of tickers that have ANY missing
+        weekday in [start_date, end_date]. Use instead of calling
+        is_ohlcv_covered() in a loop to avoid per-ticker round-trips.
+        """
+        if not tickers:
+            return []
+        try:
+            conn = self._connect()
+            cur  = conn.cursor()
+            cur.execute("""
+                SELECT DISTINCT t.ticker
+                FROM unnest(%s::text[]) AS t(ticker)
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM generate_series(%s::date, %s::date, '1 day'::interval) AS gs
+                    WHERE EXTRACT(DOW FROM gs) NOT IN (0, 6)
+                      AND gs::date NOT IN (
+                          SELECT ts_event::date
+                          FROM ohlcv.prices
+                          WHERE ohlcv.prices.ticker = t.ticker
+                            AND resolution = %s
+                      )
+                )
+            """, (tickers, str(start_date), str(end_date), resolution))
+            result = [row[0] for row in cur.fetchall()]
+            cur.close()
+            conn.close()
+            return result
+        except Exception as e:
+            print(f"[CoverageChecker] DB unreachable in get_uncovered_ohlcv: {e}")
+            return list(tickers)  # assume all missing on DB error
+
+    def get_uncovered_fundamentals(self, tickers: list[str]) -> list[str]:
+        """
+        Single-query bulk check. Returns list of tickers with no rows in
+        fundamentals.income_statement. Use instead of calling
+        is_fundamentals_covered() in a loop.
+        """
+        if not tickers:
+            return []
+        try:
+            conn = self._connect()
+            cur  = conn.cursor()
+            cur.execute("""
+                SELECT t.ticker
+                FROM unnest(%s::text[]) AS t(ticker)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM fundamentals.income_statement
+                    WHERE ticker = t.ticker LIMIT 1
+                )
+            """, (tickers,))
+            result = [row[0] for row in cur.fetchall()]
+            cur.close()
+            conn.close()
+            return result
+        except Exception as e:
+            print(f"[CoverageChecker] DB unreachable in get_uncovered_fundamentals: {e}")
+            return list(tickers)
+
     def is_fundamentals_covered(self, ticker: str) -> bool:
         """
         True if fundamentals.income_statement has at least one row for ticker.
