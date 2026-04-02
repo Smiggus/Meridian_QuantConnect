@@ -70,15 +70,22 @@ class MeridianAlgorithm(QCAlgorithm):
         3. Fire Databento / FMP Dagster jobs for any missing data.
         4. If all data is present: subscribe equities and set up the framework.
 
-        Connection config is read from QC algorithm parameters (config.json):
+        Connection config is read from local_config.json (never uploaded to QC Cloud):
             pg-host, pg-port, pg-db, pg-user, pg-pass
             dagster-host, dagster-port
 
         LEAN data root: /Data  (mounted by lean CLI from Algo/data/)
         Re-run after Dagster completes ingestion if data is missing.
         """
-        # Bridge QC parameters → env vars so CoverageChecker / PipelineClient
-        # pick them up without modification.
+        # Load local connection config from local_config.json and bridge to env
+        # vars so CoverageChecker / PipelineClient pick them up without modification.
+        local_cfg_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "local_config.json"
+        )
+        with open(local_cfg_path) as fh:
+            local_cfg = json.load(fh)
+
         for param, env_var in [
             ("pg-host",      "PGHOST"),
             ("pg-port",      "PGPORT"),
@@ -88,7 +95,7 @@ class MeridianAlgorithm(QCAlgorithm):
             ("dagster-host", "DAGSTER_HOST"),
             ("dagster-port", "DAGSTER_PORT"),
         ]:
-            value = self.GetParameter(param)
+            value = local_cfg.get(param)
             if value:
                 os.environ[env_var] = value
 
