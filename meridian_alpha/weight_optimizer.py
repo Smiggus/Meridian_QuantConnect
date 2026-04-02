@@ -177,7 +177,7 @@ class WeightOptimizer:
 
         return pd.DataFrame(rows).set_index("symbol")
 
-    def _get_trailing_returns(self, symbols: list, days: int = 252) -> pd.Series:
+    def _get_trailing_returns(self, symbols: list, days: int = 756) -> pd.Series:
         """
         Trailing N-day return for each symbol using QC History API.
         Used as the IC label in weight computation.
@@ -186,7 +186,7 @@ class WeightOptimizer:
 
         try:
             history = self._algo.History(
-                symbols, days + 30, Resolution.Daily
+                symbols, days + 60, Resolution.Daily
             )
             if history.empty or "close" not in history.columns:
                 return pd.Series(dtype=float)
